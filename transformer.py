@@ -13,6 +13,7 @@ class Attention(nn.Module):
         self.W_O=nn.Linear(n_head*d_v, d_model)
         self.n_head=n_head
         self.d_head=d_head
+        self.d_v=d_v
         
     def forward(self, x, mask=None):
         B, L, _ = x.shape
@@ -29,7 +30,7 @@ class Attention(nn.Module):
         
                 
 class FeedForward(nn.Module):
-    def __init__(self, n_linear, d_linear, act):
+    def __init__(self, n_linear, d_linear, d_model, act):
         super().__init__()
         if(act=="gelu"):
             self.act=nn.GELU()
@@ -40,12 +41,11 @@ class FeedForward(nn.Module):
         else:
             raise ValueError(f"Invalid activation function: {act}")
         
-        
-        self.normpos=normpos
-
-        layers=[nn.Linear(d_model, d_linear), self.act]
+        layers=[nn.Linear(d_model, d_linear)]
+        layers.append(self.act)
         for _ in range(n_linear-2):
-            layers.append(nn.Linear(d_linear, d_linear), self.act)
+            layers.append(nn.Linear(d_linear, d_linear))
+            layers.append(self.act)
         layers.append(nn.Linear(d_linear, d_model))
         self.layers=nn.Sequential(*layers)
 
@@ -67,7 +67,7 @@ class TransformerBlock(nn.Module):
         
         self.normpos=normpos
         self.attn=Attention(d_model, n_head, d_head, d_v)
-        self.ffn=FeedForward(n_linear, d_linear, act)
+        self.ffn=FeedForward(n_linear, d_linear, d_model, act)
         
     def forward(self, x, mask=None):
         if(self.normpos=="pre"):
@@ -80,12 +80,18 @@ class TransformerBlock(nn.Module):
             raise ValueError(f"Invalid normalization position: {self.normpos}")
         
         return x
-
         
 class Transformer(nn.Module):
-    def __init__(self, n_layers, d_model, n_head, d_head, d_v, n_linear, d_linear, act="gelu", norm='rms', normpos='pre'):
+    def __init__(self, tokenizer, head, n_layers, d_model, n_head, d_head, d_v, n_linear, d_linear, act="gelu", norm='rms', normpos='pre'):
         super().__init__()
-        self.layers=nn.Sequential(TransformerBlock(d_model, n_head, d_head, d_v, n_linear, d_linear, act="gelu", norm='rms', normpos='pre') for _ in range(n_layers))
+        layers=[]
+        self.tokenizer=tokenizer
+        self.layers=nn.ModuleList([TransformerBlock(d_model, n_head, d_head, d_v, n_linear, d_linear, act=act, norm=norm, normpos=normpos) for _ in range(n_layers)])
+        self.head=head
 
     def forward(self, x, mask=None):
-        return self.layers(x, mask=mask)
+        x=self.tokenizer(x)
+        for layer in self.layers:
+            x=layer(x, mask=mask)
+        return self.head(x)
+    
