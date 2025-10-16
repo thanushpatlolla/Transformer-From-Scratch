@@ -6,7 +6,7 @@ from tokenizers import ImageTokenizer
 from heads import ViTHead
 import torch.optim as optim
 
-def cifar100(device, n_epochs=100):
+def cifar100(device, n_epochs=200):
     d_model=384
     tokenizer=ImageTokenizer(img_size=32, patch_size=4, in_channels=3, d_model=d_model)
     head=ViTHead(d_model=d_model, n_classes=100, norm="rms")
@@ -14,7 +14,23 @@ def cifar100(device, n_epochs=100):
 
     loader=ImageDataLoader(batch_size=128, dataset_name="cifar100", normalize=True, augmentation=True)
     train_loader, val_loader=loader.get_data()
-    optimizer=optim.Adam(model.parameters(), lr=3e-4, weight_decay=0.05)
+
+    # Separate parameters: no weight decay for norms, biases, and positional embeddings
+    decay_params = []
+    no_decay_params = []
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        # Exclude layer norms, biases, positional encodings, and cls tokens from weight decay
+        if 'norm' in name or 'bias' in name or 'pos_enc' in name or 'cls_token' in name:
+            no_decay_params.append(param)
+        else:
+            decay_params.append(param)
+
+    optimizer=optim.AdamW([
+        {'params': decay_params, 'weight_decay': 0.01},
+        {'params': no_decay_params, 'weight_decay': 0.0}
+    ], lr=3e-4)
 
     steps_per_epoch = len(train_loader)
     warmup_steps = int(0.05 * steps_per_epoch * n_epochs)
@@ -23,7 +39,7 @@ def cifar100(device, n_epochs=100):
     scheduler = torch.optim.lr_scheduler.SequentialLR(
         optimizer,
         schedulers=[
-            torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1e-3, total_iters=warmup_steps),
+            torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, total_iters=warmup_steps),
             torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps - warmup_steps, eta_min=1e-6)
         ],
         milestones=[warmup_steps]

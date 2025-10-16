@@ -23,30 +23,30 @@ class Trainer:
             self.optimizer.zero_grad()
             ans=self.model(data)
             loss=F.cross_entropy(ans,target, label_smoothing=self.label_smoothing)
-            loss_value=loss.item()
+            loss_value+=loss.item()
             loss.backward()
             self.optimizer.step()
             self.scheduler.step()
 
-        return loss_value
+        return loss_value/len(self.train_loader)
 
     def evaluate(self):
         self.model.eval()
         correct=0
         total=0
-        val_loss_sum=0.0
+        loss_sum=0.0
         for data, target in tqdm(self.val_loader, desc='Evaluating'):
             data=data.to(self.device)
             target=target.to(self.device)
             with torch.no_grad():
                 ans=self.model(data)
-                loss_sum=F.cross_entropy(ans,target,reduction='sum')
+                loss=F.cross_entropy(ans,target, reduction='sum')
+                loss_sum+=loss.item()
             correct+=(ans.argmax(dim=1)==target).sum().item()
             total+=len(target)
-            val_loss_sum+=loss_sum.item()
-        
+
         acc=correct/total if total>0 else 0.0
-        val_loss=val_loss_sum/total if total>0 else 0.0
+        val_loss=loss_sum/total if total>0 else 0.0
         return acc, val_loss
 
     def train(self):
